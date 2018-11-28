@@ -1,5 +1,6 @@
 #!/bin/bash
 ## Author: Ravikant Kumar
+#------------------
 
 if [ ! -f $statusFile ];then
 	#if replicationStatus txt not created then create it
@@ -12,7 +13,8 @@ Slave_IO_Running=`mysql -h $host -u $userName --password=$Password -e "show slav
 #slow_slave_status=`mysql -h $host -u $userName --password=$Password -e "show slave status\G"`
 #echo -e "$slow_slave_status"
 
-show_slave_status=`mysql -h $host -u $userName --password=$Password -e "show slave status \G"`
+filter_show_slave_status=`mysql -h $host -u $userName --password=$Password -e "show slave status \G"|grep "Slave_IO_Running:\|Slave_SQL_Running:\|Last_IO_Errno:\|Last_IO_Error:\|Last_SQL_Errno:\|Last_SQL_Error:"`
+#echo $filter_show_slave_status
 #Last_Errno=`mysql -h $host -u $userName --password=$Password -e "show slave status \G" |grep -i "Last_Errno:"|gawk -F":" '{print $2}'`
 #Last_Error=`mysql -h $host -u $userName --password=$Password -e "show slave status \G" |grep -i "Last_Error:"|gawk -F":" '{print $2}'`
 #Last_IO_Errno=`mysql -h $host -u $userName --password=$Password -e "show slave status \G" |grep -i "Last_IO_Errno:"|gawk -F":" '{print $2}'`
@@ -21,6 +23,15 @@ show_slave_status=`mysql -h $host -u $userName --password=$Password -e "show sla
 #Last_SQL_Error=`mysql -h $host -u $userName --password=$Password -e "show slave status \G" |grep -i "Last_SQL_Error:"|gawk -F":" '{print $2}'`
 
 SECONDS_BEHIND_MASTER=`mysql -h $host -u $userName --password=$Password -e "SHOW SLAVE STATUS\G"| grep "Seconds_Behind_Master" |gawk '{print $2}'`
+
+## For replication thread
+replication_thread_output=`mysql -h $host -u $userName --password=$Password < $replication_thread`
+if [[ "$replication_thread_output" = "" ]]; then
+	hide_rep_thread="display:none;"
+else
+	hide_rep_thread=" "
+fi
+replication_thread_for_email=$(echo "${replication_thread_output//$'\n'/<br/>}")
 
 #Slave_SQL_Running="No"
 #Slave_IO_Running="No"
@@ -66,7 +77,7 @@ send_email() {
 	echo "==========sending email========="
 	#echo -e "$2" | mail -s "$(echo -e "$1\nContent-Type: text/html")" $email
 	#echo -e "Content-Type: text/html\nTo: $email\nSubject: $1\nMIME-Version: 1.0 $2" | sendmail -t
-	(echo "From: DB Alert <dbalert@lenskart.in>"; echo "To: $email"; echo "Subject: $1"; echo "Content-Type: text/html"; echo "MIME-Version: 1.0"; echo ""; echo -e "$2";) | /usr/sbin/sendmail -t
+	(echo "From: DB Alert <dbalert@lenskart.in>"; echo "To: $email"; echo "Cc: ajeets@valyoo.in"; echo "Subject: $1 at $(date +"%Y-%m-%d %I:%M %p")"; echo "Content-Type: text/html"; echo "MIME-Version: 1.0"; echo ""; echo -e "$2";) | /usr/sbin/sendmail -t
 	#echo -e "$2" | mail -s "$1" $email
 }
 
@@ -76,10 +87,9 @@ send_slack_alert () {
 }
 
 ##=========================================================================
+show_slave_status_for_email=$(echo "${filter_show_slave_status//$'\n'/<br/>}")
 
-show_slave_status_for_email=$(echo "${show_slave_status//$'\n'/<br/>}")
-
-msgBody="<div style=''>Hi Team,<br><br>Replication on the slave MySQL server($serverName/$host) has been stopped. <br>Current status : <b style='color:red;font-size:24px'>$currentStat</b><br>Date: $(date)<br><br><div style='background-color: #eff2f7;'>$show_slave_status_for_email</div></div><br><br>Regards<br>Team DBA"
+msgBody="<div style=''>Hi Team,<br><br>An error has been detected on the MySQL Server replication. Below is a list of the reported errors.<br><br><div style='background-color: #eff2f7;'>$show_slave_status_for_email</div></div><br><br>Regards<br>Team DBA"
 
 #msgBody="<div style=''>Hi Team,<br><br>Replication on the slave MySQL server($serverName/$host) has been stopped. <br>Current status : <b style='color:red;font-size:24px'>$currentStat</b><br>Date: $(date)<br><br><table bgcolor='#f4f6f9' style='font-family: Menlo;text-align:left;' ><tbody><tr><th style='border-bottom: 2px solid black;'>MySQL Slave Status<th><th style='width:60%'></th></tr><tr><td>Slave_SQL_Running: </td><td>$Slave_SQL_Running</td></tr><tr><td>Slave_IO_Running: </td><td>$Slave_IO_Running</td></tr><tr><td>Last_Errno: </td><td>$Last_Errno</td></tr><tr><td>Last_Error: </td><td>$Last_Error</td></tr><tr><td>Last_IO_Errno: </td><td>$Last_IO_Errno</td></tr><tr><td>Last_IO_Error: </td><td>$Last_IO_Error</td></tr><tr><td>Last_SQL_Errno: </td><td>$Last_SQL_Errno</td></tr><tr><td>Last_SQL_Error: </td><td>$Last_SQL_Erro</td></tr></tbody></table></div><br><br>Regards<br>Team DBA"
 
@@ -91,20 +101,23 @@ if [[ "$currentStat" = "Down" && "$privCurrStat" = "Up" ]]; then
         #send_sms "Replication is Down on  Server(@$Time)."
 	echo $currentStat 
 	echo $privCurrStat
-        send_email "Replication status down on $serverName($host)." "$msgBody"
-        send_slack_alert "Replication status down on $serverName($host) Server." ""
+        #send_email "Replication status down on $serverName($host)." "$msgBody"
+        send_email "[Critical] MySQL Replication down on [ $host ] $serverName" "$msgBody"
+        send_slack_alert "[Critical] MySQL Replication down on [ $host ] $serverName" ""
+	## For alert at every 10min when replication is down state.
+	echo "sed -i '1s/.*/Up/' $statusFile" | at now + 10 min
 elif [[ "$currentStat" = "Up" && "$privCurrStat" = "Down" ]]; then
         #send_sms "Replication is Up on serverName Server(@$Time)."
-        send_email "Replication status up on $serverName($host)." "Hi Team<br>Alert: <b>Replication is </b><b style='color:green;font-size:20px'>$currentStat</b> at $(date)<br>Second Behid Master:<b style='color:red;font-size:20px'>$Delay Seconds.</b><br><br>Regards<br>Team DBA"
-        send_slack_alert "Replication status up on $serverName($host)." "Hi Team\nAlert: Replication is $currentStat at $(date)\nSecond Behid Master:\t$Delay"
+        send_email "[Normal] MySQL Replication up on [ $host ] $serverName" "Hi Team,<br><br>Replication on the MySQL Server is running normally.<br><br><b style='border-bottom: 2px solid black;$hide_rep_thread'>Replication Thread</b><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_thread_for_email"`</div><br><br>Regards<br>Team DBA"
+        send_slack_alert "[Normal] MySQL Replication up on [ $host ] $serverName" "Hi Team\nReplication on the MySQL Server [IP : $host ] $serverName has been started.\nSeconds Behind master:\t$Delay"
 fi
 ##========================================================================
 ##========================================================================
 sendSmsStat=`sed '3q;d' $statusFile`
 if [[ "$Delay" = "0" && "$sendSmsStat" = "delay" ]]; then
         #send_sms "Currently ($Time) there is no Replication delay on $serverName"
-        send_email "Replication Delay Status @ $serverName($host)" "Hi Team,<br>Now the slave($host)($serverName) is in sync with its master server.<br>Date: $(date)<br><p>Delay: <b style='color:green;font-size:24px'>$Delay</b></p><br><br>Regards<br>Team DBA"
-        send_slack_alert "Replication Delay Status @ $serverName($host)" "Hi Team,\nNow the slave($host)($serverName) is in sync with its master server.\nDate: $(date)\nDelay: $Delay"
+        send_email "[Normal] MySQL Replication status on [ $host ] $serverName" "Hi Team,<br><br>MySQL slave in sync with its master.<br><p>Seconds Behind master: <b style='color:green;font-size:18px'> $Delay </p></b><br><br><br><b style='border-bottom: 2px solid black;$hide_rep_thread'>Replication Thread</b><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_thread_for_email"`</div><br><br><br>Regards<br>Team DBA"
+        send_slack_alert "Replication status on MySQL Server [ $host ] $serverName" "Hi Team,\nNow, the slave[$host] got sync with its master.\nSeconds Behind master: $Delay "
         sed -i "3s/.*/nodelay/" $statusFile
         sed -i "4s/.*/0/" $statusFile # This is used for 10minAlert
         sed -i "5s/.*/0/" $statusFile # This is used for 30minAlert
@@ -124,15 +137,25 @@ t30minAlert=`sed '5q;d' $statusFile`
 if [[ "$Delay" -ge "$delay_threshold" && "$t10minAlert" = "0" && "$t30minAlert" = "0" ]];then
 	## Sending alert msg
        	replication_blocking_thread=`mysql -h $host -u $userName --password=$Password < $replication_blocking_thread`
+	if [[ "$replication_blocking_thread" = "" ]]; then
+                hide_rep_block_thread="display:none;"
+        else
+                hide_rep_block_thread=" "
+        fi
 	### Changing \n with <br> for email formating
 	replication_blocking_thread=$(echo "${replication_blocking_thread//$'\n'/<br/>}")
         sql_querys=`mysql -h $host -u $userName --password=$Password < $sql_querys`
+	if [[ "$sql_querys" = "" ]]; then
+        	hide_Mysql_processlist="display:none;"
+	else
+        	hide_Mysql_processlist=" "
+	fi
 	### Changing \n with <br> for email formating
 	sql_querys=$(echo "${sql_querys//$'\n'/<br/>}")
 	echo "sending first email"
 	#send_email "test" " first mail test fjkasgjkflksajdi"
-        send_email "Replication Delay Status @ $serverName($host)" "Hi Team,<br>There is replication problem. <br>Second Behid Master:<b style='color:red;font-size:20px'>$Delay Seconds.</b><br><br><b style='border-bottom: 2px solid black;'>Replication Blocking Thread</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_blocking_thread"`</div><br><br><b style='border-bottom: 2px solid black;'>Top 10 SQL Query</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$sql_querys"`</div><br><br>Regards<br>Team DBA"
-	send_slack_alert "Replication Delay Status @ $serverName($host)" "Hi Team,\nThere is replication problem.\nSecond Behid Master: $Delay Seconds."
+        send_email "[Warning] MySQL Replication status on [ $host ] $serverName" "Hi Team,<br><br>MySQL replication - slave is lagging behind master.<br><br>Seconds Behind master:<b style='color:red;font-size:20px'> $Delay</b><br><br><b style='border-bottom: 2px solid black;$hide_rep_thread'>Replication Thread</b><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_thread_for_email"`</div><br><b style='border-bottom: 2px solid black;$hide_Mysql_processlist'>MySQL ProcessList (Top queries)</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$sql_querys"`</div><br><b style='border-bottom: 2px solid black;$hide_rep_block_thread'>Replication Blocking Thread</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_blocking_thread"`</div><br><br>Regards<br>Team DBA"
+	send_slack_alert "[Warning] MySQL Replication status on [ $host ] $serverName" "Hi Team,\nMySQL replication - slave is lagging behind master.\nSeconds Behind master: $Delay "
 	sed -i "4s/.*/1/" $statusFile # Set 1 for mail send on first detection
 	# Set 10 after 10 min of first alert for next mail afte 10 min..
 	echo "sed -i '4s/.*/10/' $statusFile" | at now + 10 min
@@ -141,29 +164,50 @@ if [[ "$Delay" -ge "$delay_threshold" && "$t10minAlert" = "0" && "$t30minAlert" 
 elif [[ "$Delay" -ge "$delay_threshold" && "$t10minAlert" = "10" && "$t30minAlert" = "0" ]];then
 	## Sending Alert after 10 min of previous alert.
        	replication_blocking_thread=`mysql -h $host -u $userName --password=$Password < $replication_blocking_thread`
+	if [[ "$replication_blocking_thread" = "" ]]; then
+                hide_rep_block_thread="display:none;"
+        else
+                hide_rep_block_thread=" "
+        fi
 	### Changing \n with <br> for email formating
         replication_blocking_thread=$(echo "${replication_blocking_thread//$'\n'/<br/>}")
         sql_querys=`mysql -h $host -u $userName --password=$Password < $sql_querys`
+	if [[ "$sql_querys" = "" ]]; then
+                hide_Mysql_processlist="display:none;"
+        else
+                hide_Mysql_processlist=" "
+        fi
 	### Changing \n with <br> for email formating
         sql_querys=$(echo "${sql_querys//$'\n'/<br/>}")
 	echo "sending email on 10 min condition"
-        send_email "Replication Delay Status @ $serverName($host)" "Hi Team,<br>There is replication problem since 10 min. <br>Second Behid Master:<b style='color:red;font-size:20px'>$Delay Seconds.</b><br><br><b style='border-bottom: 2px solid black;'>Replication Blocking Thread</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_blocking_thread"`</div><br><b style='border-bottom: 2px solid black;'>Top 10 SQL Query</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$sql_querys"`</div><br><br>Regards<br>Team DBA"
-	send_slack_alert "Replication Delay Status @ $serverName($host)" "Hi Team,\nThere is replication problem since 10 min.\nSecond Behid Master: $Delay Seconds."
+	send_email "[Critical] MySQL Replication status on [ $host ] $serverName" "Hi Team,<br><br>MySQL replication - slave is continuously lagging behind master.<br><br>Seconds Behind master:<b style='color:red;font-size:20px'> $Delay</b><br><br><b style='border-bottom: 2px solid black;$hide_rep_thread'>Replication Thread</b><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_thread_for_email"`</div><br><b style='border-bottom: 2px solid black;$hide_Mysql_processlist'>MySQL ProcessList (Top queries)</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$sql_querys"`</div><br><b style='border-bottom: 2px solid black;$hide_rep_block_thread'>Replication Blocking Thread</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_blocking_thread"`</div><br><br>Regards<br>Team DBA"
+        send_slack_alert "[Critical] MySQL Replication status on [ $host ] $serverName" "Hi Team,\nMySQL replication - slave is continuously lagging behind master.\nSeconds Behind master: $Delay "
 	sed -i "5s/.*/1/" $statusFile # Set 1 for mail send on 10 min of detection."
 	 # Set 10 after 30 min of first alert for next mail afte 30 min.
 	echo "sed -i '5s/.*/30/' $statusFile" | at now + 30 min
 elif [[ "$Delay" -ge "$delay_threshold" && "$t10minAlert" = "10" && "$t30minAlert" = "30" ]];then
 	## Sending Alert after 30 min of previous alert.	
        	replication_blocking_thread=`mysql -h $host -u $userName --password=$Password < $replication_blocking_thread`
+	if [[ "$replication_blocking_thread" = "" ]]; then
+                hide_rep_block_thread="display:none;"
+        else
+                hide_rep_block_thread=" "
+        fi
 	### Changing \n with <br> for email formating
         replication_blocking_thread=$(echo "${replication_blocking_thread//$'\n'/<br/>}")
         sql_querys=`mysql -h $host -u $userName --password=$Password < $sql_querys`
+	if [[ "$sql_querys" = "" ]]; then
+                hide_Mysql_processlist="display:none;"
+        else
+                hide_Mysql_processlist=" "
+        fi
 	### Changing \n with <br> for email formating
         sql_querys=$(echo "${sql_querys//$'\n'/<br/>}")
 	echo "sending 30 min alert"
-        send_email "Replication Delay Status @ $serverName($host)" "Hi Team,<br>There is replication problem since 40 min. <br>Second Behid Master:<b style='color:red;font-size:20px'>$Delay Seconds.</b><br><br><b style='border-bottom: 2px solid black;'>Replication Blocking Thread</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_blocking_thread"`</div><br><b style='border-bottom: 2px solid black;'>Top 10 SQL Query</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$sql_querys"`</div><br><br>Regards<br>Team DBA"
-	send_slack_alert "Replication Delay Status @ $serverName($host)" "Hi Team,\nThere is replication problem since 40 min.\nSecond Behid Master: $Delay Seconds."
-	sed -i "5s/.*/1/" $statusFile # Set 1  for dont repet alert after40 min.
+	send_email "[Critical] MySQL Replication status on [ $host ] $serverName" "Hi Team,<br><br>MySQL replication - slave is continuously lagging behind master.<br><br>Seconds Behind master:<b style='color:red;font-size:20px'> $Delay </b><br><br><b style='border-bottom: 2px solid black;$hide_rep_thread'>Replication Thread</b><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_thread_for_email"`</div><br><b style='border-bottom: 2px solid black;$hide_Mysql_processlist'>MySQL ProcessList (Top queries)</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$sql_querys"`</div><br><b style='border-bottom: 2px solid black;$hide_rep_block_thread'>Replication Blocking Thread</b><br><div style='background-color:#eff2f7;text-align:left'>`echo -e "$replication_blocking_thread"`</div><br><br>Regards<br>Team DBA"
+        send_slack_alert "[Critical] MySQL Replication status on [ $host ] $serverName" "Hi Team,\nMySQL replication - slave is continuously lagging behind master.\nSeconds Behind master: $Delay "
+	sed -i "5s/.*/1/" $statusFile # Set 1  for dont repet alert.
+	echo "sed -i '5s/.*/30/' $statusFile" | at now + 30 min # set alert every 30 min when delay persist.
 fi
 
 
@@ -185,7 +229,7 @@ if [ "$lines" = "16" ];then
 	        #sql_querys=$(echo "${sql_querys//$'\n'/<br/>}")
                 #send_sms "Replication @ $serverName;$sms_text"
 		echo "sending delay alert email"
-                #send_email "Replication Delay Status @ $serverName($host)" "<h3>Hi Team,<br>There is replication problem. <br>Second Behid Master:<b style='color:red;font-size:20px'>$Delay Seconds.</b></h3><br><b>Previos State of Replication Delay</b><br><div style='background-color:#eff2f7'>$msg_text</div><br><b style='border-bottom: 5px solid green;'>Replication Blocking Thread</b><div style='background-color:#eff2f7;text-align:left'>$replication_blocking_thread</div><br><b style='border-bottom: 5px solid green;'>Top 10 SQL Query</b><div style='background-color:#eff2f7;text-align:left'>$replication_blocking_thread</div><br><br>Regards<br>Team DBA"
+                #send_email "Replication Delay Status @ $serverName($host)" "<h3>Hi Team,<br><br>There is replication problem. <br>Second Behid Master:<b style='color:red;font-size:20px'>$Delay Seconds.</b></h3><br><b>Previos State of Replication Delay</b><br><div style='background-color:#eff2f7'>$msg_text</div><br><b style='border-bottom: 5px solid green;'>Replication Blocking Thread</b><div style='background-color:#eff2f7;text-align:left'>$replication_blocking_thread</div><br><b style='border-bottom: 5px solid green;'>Top 10 SQL Query</b><div style='background-color:#eff2f7;text-align:left'>$replication_blocking_thread</div><br><br>Regards<br>Team DBA"
                 #send_slack_alert "Replication Delay Status @ $serverName($host)" "$msg_text"
                 sed -i "3s/.*/delay/" $statusFile
         fi

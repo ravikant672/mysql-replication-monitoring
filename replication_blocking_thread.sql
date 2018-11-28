@@ -1,4 +1,4 @@
-SELECT 
+SELECT
     r.trx_id waiting_trx_id,
     r.trx_mysql_thread_id waiting_thread,
     TIMESTAMPDIFF(SECOND,
