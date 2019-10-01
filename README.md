@@ -32,17 +32,36 @@ Hi Team,
 
 MySQL replication - slave is continuously lagging behind master.
 
-Seconds Behind master: 16408
+Seconds Behind master: 1295
 
 Replication Thread
 *************************** 1. row ***************************
-ID: 1871776
+ID: 878419327
 USER: system user
 HOST: 
 DB: inventory
 COMMAND: Connect
-TIME: 16432
+TIME: 1315
 STATE: Copying to tmp table
 INFO: INSERT INTO stock_adjustment_update_sync( product_id, sync_status ) SELECT DISTINCT (o.product_id), 'No' FROM `newOrdersFlow` o JOIN products p ON o.product_id = p.product_id WHERE o.product_id <50000000 AND o.created_at > DATE_SUB( CURDATE( ) , INTERVAL 1 DAY ) AND p.classification NOT IN ( 11356, 13287 ) AND p.product_id !='47552' and o.store_id = 4
 
+MySQL ProcessList (Top queries)
+*************************** 1. row ***************************
+ID: 952068393
+USER: team-analytics
+HOST: %
+DB: flat_reports_txn
+COMMAND: Connect
+TIME: 150
+STATE: Sending data
+INFO: Update flat_reports_txn.franchise_return_item_ref__for_combined_orders a, inventory.uw_orders b set a.`status` = b.shipment_status where a.item_id = b.item_id
+*************************** 2. row ***************************
+ID: 952446412
+USER: tech_unireport
+HOST: 172.31.2.181:47926
+DB: inventory
+COMMAND: Query
+TIME: 61
+STATE: Sorting result
+INFO: select fld_row_last_update_on from inventory.uniReport_gatepass order by fld_row_last_update_on desc limit 1
 ```
