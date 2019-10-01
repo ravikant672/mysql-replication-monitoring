@@ -11,7 +11,7 @@ This script is used for monitoring and alerting of MySQL replication.
  3. **mysql-replicatin.sh** : This script contain all logic for replication monitoring and alerting. 
  4. There is 3 sql file which contain sql queries.
  
- *This script send email alert and sms alert for Replication Down or Delay.*
+ *This script send email alert and sms alert for Replication Down or Delay. And also include some info in email alert like Replication blocking thread, Secound behind master *
  *This script store some value in .txt file for current and previous status. And also we store some value which is used for alerting on specific time interval. To manage timeinterval we are using at command *
  ```bash
  at now + 10 min
@@ -26,7 +26,23 @@ send_email() {
 }
 ```
 
+*Sample email *
+```bash
+Hi Team,
 
+MySQL replication - slave is continuously lagging behind master.
 
-  
-  
+Seconds Behind master: 16408
+
+Replication Thread
+*************************** 1. row ***************************
+ID: 1871776
+USER: system user
+HOST: 
+DB: inventory
+COMMAND: Connect
+TIME: 16432
+STATE: Copying to tmp table
+INFO: INSERT INTO stock_adjustment_update_sync( product_id, sync_status ) SELECT DISTINCT (o.product_id), 'No' FROM `newOrdersFlow` o JOIN products p ON o.product_id = p.product_id WHERE o.product_id <50000000 AND o.created_at > DATE_SUB( CURDATE( ) , INTERVAL 1 DAY ) AND p.classification NOT IN ( 11356, 13287 ) AND p.product_id !='47552' and o.store_id = 4
+
+```
